@@ -99,11 +99,12 @@ const getRandomArbitrary = (min, max) => {
  * @returns
  */
 const sleep = (time) => {
+    const loggerIns = logger();
     return new Promise((resolve) => {
         let remainingTime = time;
         const interval = setInterval(() => {
+            loggerIns.warning(`失败重连中，请等待${remainingTime}s ...`);
             remainingTime--;
-            console.log("正在重试......");
             if (remainingTime === 0) {
                 clearInterval(interval);
                 resolve(true);
@@ -138,26 +139,21 @@ class Tinypng {
     logger; // 日志对象
     filesList; // 保存所有的图片列表
     compressList; // 压缩后的文件列表
-    startIndex; // 开始索引
-    endIndex; // 结束索引
     fingerprintMap; // 文件指纹列表
     input; // 压缩的入口目录
     output; // 生成 md 压缩文档的输出目录
     workDir; // 工作目录
-    isCompressing; // 是否正在处理图片压缩
-    compressingList; // 正在压缩中的图片
+    generateStart = false; // 正在开始生成指纹
+    currentIndex = 0; // 记录当前压缩图片的索引，失败重试使用
+    failWaitTime = 10; // 失败需等待的时间
     constructor() {
         this.logger = logger();
         this.filesList = [];
         this.compressList = [];
-        this.startIndex = 0;
-        this.endIndex = DEFAULT_OPTIONS.maxLength;
         this.fingerprintMap = {};
         this.input = processArgv["input"] || "src";
         this.output = processArgv["output"] || "";
         this.workDir = process.cwd();
-        this.isCompressing = false;
-        this.compressingList = [];
     }
     // 入口启动函数
     async run() {
@@ -178,25 +174,30 @@ class Tinypng {
         catch (error) { }
         // 递归读取目录下没有被压缩过的所有文件
         await this.readFileList(fullDirectory);
-        const length = this.filesList.length;
-        if (!length) {
+        if (!this.filesList.length) {
             this.logger.info("无新图片可供压缩");
             return;
         }
-        for (let i = 0; i <= length; i += DEFAULT_OPTIONS.maxLength) {
+        this.logger.info(`待压缩的图片总共 ${this.filesList.length} 张`);
+        this.startCompress();
+    }
+    /**
+     * 开始压缩图片，失败后重试同样调用此函数
+     */
+    async startCompress() {
+        const length = this.filesList.length;
+        for (let i = this.currentIndex; i <= length; i += DEFAULT_OPTIONS.maxLength) {
             const list = this.filesList.slice(i, i + DEFAULT_OPTIONS.maxLength);
-            this.compressingList = list;
-            await this.batcheCompressImage();
+            this.currentIndex += DEFAULT_OPTIONS.maxLength;
+            const compressList = await this.compressImage(list);
+            this.compressList = [...this.compressList, ...compressList];
+            if (this.compressList.length >= this.filesList.length &&
+                !this.generateStart) {
+                this.generateStart = true;
+                this.generateFingerprint();
+                this.outputDocument();
+            }
         }
-        // let isFirst = true;
-        // // （第一次压缩 || 目前压缩的图片结束索引 <= 没有被压缩过的图片长度）&& 不正在压缩的过程中
-        // while ((isFirst || this.endIndex <= length) && !this.isCompressing) {
-        //   const list = this.filesList.slice(this.startIndex, this.endIndex);
-        //   this.batcheCompressImage(list);
-        //   isFirst = false;
-        //   this.startIndex += DEFAULT_OPTIONS.maxLength;
-        //   this.endIndex += DEFAULT_OPTIONS.maxLength; // 5, 10; 10, 15
-        // }
     }
     /**
      * 递归判断该目录下否存在文件
@@ -246,13 +247,15 @@ class Tinypng {
         fileNames.forEach((fileName) => {
             // 获取文件的绝对路径
             const fullFilePath = path.join(dirPath, fileName);
+            // 去除系统路径后文件在项目下的路径
+            const filePath = path.join(this.input, fullFilePath.split(this.input)[1]);
             // 获取文件信息状态
             const fileStat = fs.statSync(fullFilePath);
             // 如果是文件
             if (fileStat.isFile()) {
                 // 获取文件后缀名
                 const fileExt = path.extname(fileName);
-                const key = md5(fullFilePath + fileStat.size);
+                const key = md5(filePath + fileStat.size);
                 // 判断是否超出最大压缩限制
                 if (fileStat.size > DEFAULT_OPTIONS.maxSize) {
                     this.logger.warning(`文件${fileName}超出5M的压缩限制`);
@@ -263,13 +266,13 @@ class Tinypng {
                 }
                 if (fileStat.size < DEFAULT_OPTIONS.maxSize &&
                     DEFAULT_OPTIONS.fileExts.includes(fileExt) &&
-                    (!this.fingerprintMap[fullFilePath] ||
-                        (this.fingerprintMap[fullFilePath] &&
-                            this.fingerprintMap[fullFilePath] !== key))) {
+                    (!this.fingerprintMap[filePath] ||
+                        (this.fingerprintMap[filePath] &&
+                            this.fingerprintMap[filePath] !== key))) {
                     this.filesList.push({
                         size: fileStat.size,
                         name: fileName,
-                        path: fullFilePath,
+                        path: filePath,
                     });
                 }
             }
@@ -280,51 +283,40 @@ class Tinypng {
         });
     }
     /**
-     * 分批压缩图片
-     * @param list 从 fileList 中取出的待压缩的图片列表
-     */
-    async batcheCompressImage() {
-        const compressListPromise = await this.compressImage(this.compressingList);
-        Promise.all(compressListPromise).then((compressList) => {
-            this.compressList = [...this.compressList, ...compressList];
-            this.isCompressing = false;
-            console.log(this.compressList, "-----------------compressList");
-            if (this.compressList.length >= this.filesList.length) {
-                this.generateFingerprint();
-                this.outputDocument();
-            }
-        });
-    }
-    /**
      * 压缩图片的逻辑
      * @param {*} fileList 压缩的图片列表
      */
     compressImage(fileList) {
-        return new Promise((resolve, reject) => {
+        return new Promise(async (resolve, reject) => {
+            // 保存压缩后的图片信息
+            const compressList = [];
             try {
-                this.isCompressing = true;
-                const compressList = fileList.map(async (file) => {
-                    this.logger.info(`正在压缩图片 ${file.path}`);
-                    const fileContent = fs.readFileSync(file.path, "binary");
-                    const result = await this.uploadImage(fileContent, file.path);
+                while (fileList.length) {
+                    const currentFile = fileList.pop();
+                    this.logger.info(`正在压缩图片 ${currentFile.path}`);
+                    const fileContent = fs.readFileSync(currentFile.path, "binary");
+                    const result = await this.uploadImage(fileContent, currentFile.path);
                     const { url, size, ratio } = result.output;
                     if (!url)
                         return;
-                    const data = await this.downloadImage(url, file.path);
+                    const data = await this.downloadImage(url, currentFile.path);
                     if (!data)
                         return;
-                    fs.writeFileSync(file.path, data, "binary");
-                    return { ...file, miniSize: size, ratio };
-                });
+                    fs.writeFileSync(currentFile.path, data, "binary");
+                    compressList.push({ ...currentFile, miniSize: size, ratio });
+                }
                 resolve(compressList);
             }
             catch (error) {
-                console.log(error, "error--------------");
                 // 这里如果上传图片和下载图片报错了，需要重试
-                sleep(5).then(() => {
-                    this.batcheCompressImage();
+                if (this.failWaitTime < 60) {
+                    this.failWaitTime += 10;
+                }
+                sleep(this.failWaitTime).then(() => {
+                    // 这里将 currentIndex 的值减去 maxLength，是为了重新获取失败的图片组
+                    this.currentIndex -= DEFAULT_OPTIONS.maxLength;
+                    this.startCompress();
                 });
-                reject(error);
             }
         });
     }
@@ -382,8 +374,8 @@ class Tinypng {
      */
     generateFingerprint() {
         const result = this.compressList.reduce((memo, current) => {
-            const { name, miniSize } = current;
-            memo[path.join(this.input, name)] = md5(name + miniSize);
+            const { miniSize, path } = current;
+            memo[path] = md5(path + miniSize);
             return memo;
         }, {});
         this.output && this.mkdirRecursion(this.output);
@@ -418,7 +410,7 @@ class Tinypng {
             const fileSize = `${formatSize(size)}`;
             const compressionSize = `${formatSize(miniSize)}`;
             const compressionRatio = `${(1 - ratio).toFixed(2) * 100}%`;
-            const desc = `| ${name} | ${fileSize} | ${compressionSize} | ${compressionRatio} | ${path.join(this.input, name)} |\n`;
+            const desc = `| ${name} | ${fileSize} | ${compressionSize} | ${compressionRatio} | ${filePath} |\n`;
             str += desc;
         }
         let sizeTotal = 0;

@@ -87,11 +87,12 @@ export const getRandomArbitrary = (min: number, max: number): number => {
  * @returns
  */
 export const sleep = (time: number) => {
+  const loggerIns = logger();
   return new Promise((resolve) => {
     let remainingTime = time;
     const interval = setInterval(() => {
+      loggerIns.warning(`失败重连中，请等待${remainingTime}s ...`);
       remainingTime--;
-      console.log("正在重试......");
       if (remainingTime === 0) {
         clearInterval(interval);
         resolve(true);
