@@ -1,5 +1,5 @@
 {
-  "name": "@wfw/tinypng",
+  "name": "@wfu/tinypng",
   "version": "1.0.0",
   "description": "压缩图片工具",
   "bin": {
