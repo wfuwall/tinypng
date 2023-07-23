@@ -9,6 +9,10 @@
     "build": "rollup --config",
     "test": "node bin/index.js --input client --output output"
   },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "author": "",
   "license": "ISC",
   "dependencies": {
