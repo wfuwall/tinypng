@@ -265,7 +265,7 @@ class Tinypng {
     const result = this.compressList.reduce(
       (memo: any, current: ICompressListItem) => {
         const { name, miniSize } = current;
-        memo[this.input + name] = md5(name + miniSize);
+        memo[path.join(this.input, name)] = md5(name + miniSize);
         return memo;
       },
       {}
@@ -314,7 +314,10 @@ class Tinypng {
       const fileSize = `${formatSize(size)}`;
       const compressionSize = `${formatSize(miniSize)}`;
       const compressionRatio = `${((1 - ratio) as any).toFixed(2) * 100}%`;
-      const desc = `| ${name} | ${fileSize} | ${compressionSize} | ${compressionRatio} | ${filePath} |\n`;
+      const desc = `| ${name} | ${fileSize} | ${compressionSize} | ${compressionRatio} | ${path.join(
+        this.input,
+        name
+      )} |\n`;
       str += desc;
     }
     let sizeTotal = 0;

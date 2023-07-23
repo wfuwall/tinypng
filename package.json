@@ -6,7 +6,8 @@
     "tinypng": "bin/index.js"
   },
   "scripts": {
-    "build": "rollup --config"
+    "build": "rollup --config",
+    "test": "node bin/index.js --input client --output output"
   },
   "author": "",
   "license": "ISC",
