@@ -106,12 +106,13 @@ export const sleep = (time: number) => {
  * @returns
  */
 export const getHeader = (): IGetHeader => {
-  const index = Math.round(getRandomArbitrary(0, 1));
+  const index = Math.round(getRandomArbitrary(0, DEFAULT_OPTIONS.keys.length - 1));
   return {
-    hostname: DEFAULT_OPTIONS.tinyUrl[index],
+    hostname: DEFAULT_OPTIONS.tinyUrl,
     method: "POST",
-    path: "/backend/opt/shrink",
+    path: "/shrink",
     rejectUnauthorized: false,
+    auth: `api:${DEFAULT_OPTIONS.keys[index]}`,
     headers: {
       "Cache-Control": "no-cache",
       "Content-Type": "application/x-www-form-urlencoded",

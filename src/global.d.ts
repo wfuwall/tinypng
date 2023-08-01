@@ -25,6 +25,7 @@ export interface IGetHeader {
   method: string;
   path: string;
   rejectUnauthorized: boolean;
+  auth: string;
   headers: {
     "Cache-Control": string;
     "Content-Type": string;
@@ -32,4 +33,12 @@ export interface IGetHeader {
     "User-Agent": string;
     "X-Forwarded-For": string;
   };
+}
+
+export interface IDefaultOptions {
+  maxSize: number;
+  tinyUrl: string;
+  fileExts: string[];
+  maxLength: number;
+  keys: string[]
 }

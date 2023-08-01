@@ -27,6 +27,7 @@ class Tinypng {
   public generateStart: boolean = false; // 正在开始生成指纹
   public currentIndex: number = 0; // 记录当前压缩图片的索引，失败重试使用
   public failWaitTime: number = 10; // 失败需等待的时间
+  public secret: string // 秘钥的路径
   constructor() {
     this.logger = logger();
     this.filesList = [];
@@ -34,6 +35,7 @@ class Tinypng {
     this.fingerprintMap = {};
     this.input = processArgv["input"] || "src";
     this.output = processArgv["output"] || "";
+    this.secret = processArgv["secret"] || ""
     this.workDir = process.cwd();
   }
   // 入口启动函数
@@ -41,6 +43,13 @@ class Tinypng {
     // 获取压缩图片的目录
     const directory = this.input;
     const fullDirectory = path.resolve(this.workDir, directory);
+    // 合并秘钥
+    if (this.secret) {
+      const secretPath = path.resolve(this.workDir, this.secret)
+      const data = fs.readFileSync(secretPath, "utf-8");
+      const result: string[] = JSON.parse(data);
+      DEFAULT_OPTIONS.keys = [ ...DEFAULT_OPTIONS.keys, ...result ]
+    }
     // 判断指定目录下是否存在文件
     if (!this.existFile(fullDirectory)) {
       this.logger.error("当前目录不存在图片文件，请更换压缩目录");
