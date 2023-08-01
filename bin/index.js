@@ -161,6 +161,7 @@ class Tinypng {
         // 获取压缩图片的目录
         const directory = this.input;
         const fullDirectory = path.resolve(this.workDir, directory);
+        // 合并秘钥
         if (this.secret) {
             const secretPath = path.resolve(this.workDir, this.secret);
             const data = fs.readFileSync(secretPath, "utf-8");
